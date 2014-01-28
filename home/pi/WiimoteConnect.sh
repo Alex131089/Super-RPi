@@ -99,7 +99,7 @@ set_leds() {
 if [ $# -lt 1 ]; then
   # If know mac, associate them (using "threads")
   if [ -e "$MACFILE" ]; then
-    for mac in `cat "$MACFILE"`; do
+    for mac in `cat "$MACFILE" | grep -v '^\s*#'`; do
       bash $0 "$mac" &
     done
   # Else scan all HID
