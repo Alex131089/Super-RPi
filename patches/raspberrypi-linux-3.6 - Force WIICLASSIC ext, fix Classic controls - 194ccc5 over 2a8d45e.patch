@@ -1,0 +1,167 @@
+From 194ccc578a5a9a53c96ab4099e8a9365f29dcdfd Mon Sep 17 00:00:00 2001
+From: "Alexandre L."
+Date: Sun, 19 Jan 2014 14:11:16 +0100
+Subject: [PATCH] Force WIICLASSIC ext, fix Classic controls
+
+-Force WIICLASSIC ext (because this version fails to detect it or my non official remote fails to report it ?)
+-Fix classic controls (ly, rx, button invert ..) : fixed in 3.11
+-Remove HAT3 : because it's useless
+-Fix D-Pad input, because it's not detected in RetroArch when mapped as KEY_UP/... => BTN_0123
+---
+ drivers/hid/hid-wiimote-ext.c | 70 ++++++++++++++++++++---------------
+ 1 file changed, 40 insertions(+), 30 deletions(-)
+
+diff --git a/drivers/hid/hid-wiimote-ext.c b/drivers/hid/hid-wiimote-ext.c
+index 0a1805c9b0e52..262369f7318f0 100644
+--- a/drivers/hid/hid-wiimote-ext.c
++++ b/drivers/hid/hid-wiimote-ext.c
+@@ -69,10 +69,10 @@ static __u16 wiiext_keymap[] = {
+ 	KEY_NEXT,	/* WIIEXT_KEY_PLUS */
+ 	KEY_PREVIOUS,	/* WIIEXT_KEY_MINUS */
+ 	BTN_MODE,	/* WIIEXT_KEY_HOME */
+-	KEY_LEFT,	/* WIIEXT_KEY_LEFT */
+-	KEY_RIGHT,	/* WIIEXT_KEY_RIGHT */
+-	KEY_UP,		/* WIIEXT_KEY_UP */
+-	KEY_DOWN,	/* WIIEXT_KEY_DOWN */
++	BTN_0,	/* WIIEXT_KEY_LEFT */
++	BTN_1,	/* WIIEXT_KEY_RIGHT */
++	BTN_2,		/* WIIEXT_KEY_UP */
++	BTN_3,	/* WIIEXT_KEY_DOWN */
+ 	BTN_TL,		/* WIIEXT_KEY_LT */
+ 	BTN_TR,		/* WIIEXT_KEY_RT */
+ };
+@@ -101,6 +101,9 @@ static bool motionp_read(struct wiimote_ext *ext)
+ 	ssize_t ret;
+ 	bool avail = false;
+ 
++	// Don't want to enable MotionPlus (if any)
++	return false;
++
+ 	if (!atomic_read(&ext->mp_opened))
+ 		return false;
+ 
+@@ -128,6 +131,12 @@ static __u8 ext_read(struct wiimote_ext *ext)
+ 	ssize_t ret;
+ 	__u8 rmem[2], wmem;
+ 	__u8 type = WIIEXT_NONE;
++  
++  wmem = 0x55;
++  wiimote_cmd_write(ext->wdata, 0xa400f0, &wmem, sizeof(wmem));
++  wmem = 0x0;
++  wiimote_cmd_write(ext->wdata, 0xa400fb, &wmem, sizeof(wmem));
++  return WIIEXT_CLASSIC;
+ 
+ 	if (!ext->plugged || !atomic_read(&ext->opened))
+ 		return WIIEXT_NONE;
+@@ -197,6 +206,7 @@ static void wiiext_worker(struct work_struct *work)
+ 
+ 	ext_disable(ext);
+ 	motionp = motionp_read(ext);
++	motionp = false;
+ 	ext_type = ext_read(ext);
+ 	ext_enable(ext, motionp, ext_type);
+ }
+@@ -440,13 +450,13 @@ static void handler_classic(struct wiimote_ext *ext, const __u8 *payload)
+ 
+ 	if (ext->motionp) {
+ 		lx = payload[0] & 0x3e;
+-		ly = payload[0] & 0x3e;
++		ly = payload[1] & 0x3e;
+ 	} else {
+ 		lx = payload[0] & 0x3f;
+-		ly = payload[0] & 0x3f;
++		ly = payload[1] & 0x3f;
+ 	}
+ 
+-	rx = (payload[0] >> 3) & 0x14;
++	rx = (payload[0] >> 3) & 0x18;
+ 	rx |= (payload[1] >> 5) & 0x06;
+ 	rx |= (payload[2] >> 7) & 0x01;
+ 	ry = payload[2] & 0x1f;
+@@ -464,46 +474,46 @@ static void handler_classic(struct wiimote_ext *ext, const __u8 *payload)
+ 	input_report_abs(ext->input, ABS_HAT1Y, ly - 0x20);
+ 	input_report_abs(ext->input, ABS_HAT2X, rx - 0x20);
+ 	input_report_abs(ext->input, ABS_HAT2Y, ry - 0x20);
+-	input_report_abs(ext->input, ABS_HAT3X, rt - 0x20);
+-	input_report_abs(ext->input, ABS_HAT3Y, lt - 0x20);
++	//input_report_abs(ext->input, ABS_HAT3X, rt - 0x20);
++	//input_report_abs(ext->input, ABS_HAT3Y, lt - 0x20);
+ 
+ 	input_report_key(ext->input, wiiext_keymap[WIIEXT_KEY_RIGHT],
+-							!!(payload[4] & 0x80));
++							!(payload[4] & 0x80));
+ 	input_report_key(ext->input, wiiext_keymap[WIIEXT_KEY_DOWN],
+-							!!(payload[4] & 0x40));
++							!(payload[4] & 0x40));
+ 	input_report_key(ext->input, wiiext_keymap[WIIEXT_KEY_LT],
+-							!!(payload[4] & 0x20));
++							!(payload[4] & 0x20));
+ 	input_report_key(ext->input, wiiext_keymap[WIIEXT_KEY_MINUS],
+-							!!(payload[4] & 0x10));
++							!(payload[4] & 0x10));
+ 	input_report_key(ext->input, wiiext_keymap[WIIEXT_KEY_HOME],
+-							!!(payload[4] & 0x08));
++							!(payload[4] & 0x08));
+ 	input_report_key(ext->input, wiiext_keymap[WIIEXT_KEY_PLUS],
+-							!!(payload[4] & 0x04));
++							!(payload[4] & 0x04));
+ 	input_report_key(ext->input, wiiext_keymap[WIIEXT_KEY_RT],
+-							!!(payload[4] & 0x02));
++							!(payload[4] & 0x02));
+ 	input_report_key(ext->input, wiiext_keymap[WIIEXT_KEY_ZL],
+-							!!(payload[5] & 0x80));
++							!(payload[5] & 0x80));
+ 	input_report_key(ext->input, wiiext_keymap[WIIEXT_KEY_B],
+-							!!(payload[5] & 0x40));
++							!(payload[5] & 0x40));
+ 	input_report_key(ext->input, wiiext_keymap[WIIEXT_KEY_Y],
+-							!!(payload[5] & 0x20));
++							!(payload[5] & 0x20));
+ 	input_report_key(ext->input, wiiext_keymap[WIIEXT_KEY_A],
+-							!!(payload[5] & 0x10));
++							!(payload[5] & 0x10));
+ 	input_report_key(ext->input, wiiext_keymap[WIIEXT_KEY_X],
+-							!!(payload[5] & 0x08));
++							!(payload[5] & 0x08));
+ 	input_report_key(ext->input, wiiext_keymap[WIIEXT_KEY_ZR],
+-							!!(payload[5] & 0x04));
++							!(payload[5] & 0x04));
+ 
+ 	if (ext->motionp) {
+ 		input_report_key(ext->input, wiiext_keymap[WIIEXT_KEY_UP],
+-							!!(payload[0] & 0x01));
++							!(payload[0] & 0x01));
+ 		input_report_key(ext->input, wiiext_keymap[WIIEXT_KEY_LEFT],
+-							!!(payload[1] & 0x01));
++							!(payload[1] & 0x01));
+ 	} else {
+ 		input_report_key(ext->input, wiiext_keymap[WIIEXT_KEY_UP],
+-							!!(payload[5] & 0x01));
++							!(payload[5] & 0x01));
+ 		input_report_key(ext->input, wiiext_keymap[WIIEXT_KEY_LEFT],
+-							!!(payload[5] & 0x02));
++							!(payload[5] & 0x02));
+ 	}
+ 
+ 	input_sync(ext->input);
+@@ -650,16 +660,16 @@ int wiiext_init(struct wiimote_data *wdata)
+ 	set_bit(ABS_HAT1Y, ext->input->absbit);
+ 	set_bit(ABS_HAT2X, ext->input->absbit);
+ 	set_bit(ABS_HAT2Y, ext->input->absbit);
+-	set_bit(ABS_HAT3X, ext->input->absbit);
+-	set_bit(ABS_HAT3Y, ext->input->absbit);
++	//set_bit(ABS_HAT3X, ext->input->absbit);
++	//set_bit(ABS_HAT3Y, ext->input->absbit);
+ 	input_set_abs_params(ext->input, ABS_HAT0X, -120, 120, 2, 4);
+ 	input_set_abs_params(ext->input, ABS_HAT0Y, -120, 120, 2, 4);
+ 	input_set_abs_params(ext->input, ABS_HAT1X, -30, 30, 1, 1);
+ 	input_set_abs_params(ext->input, ABS_HAT1Y, -30, 30, 1, 1);
+ 	input_set_abs_params(ext->input, ABS_HAT2X, -30, 30, 1, 1);
+ 	input_set_abs_params(ext->input, ABS_HAT2Y, -30, 30, 1, 1);
+-	input_set_abs_params(ext->input, ABS_HAT3X, -30, 30, 1, 1);
+-	input_set_abs_params(ext->input, ABS_HAT3Y, -30, 30, 1, 1);
++	//input_set_abs_params(ext->input, ABS_HAT3X, -30, 30, 1, 1);
++	//input_set_abs_params(ext->input, ABS_HAT3Y, -30, 30, 1, 1);
+ 	set_bit(ABS_RX, ext->input->absbit);
+ 	set_bit(ABS_RY, ext->input->absbit);
+ 	set_bit(ABS_RZ, ext->input->absbit);
